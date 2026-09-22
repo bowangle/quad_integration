@@ -1,0 +1,4 @@
+[submodule "extern/fft-tn-quadp"]
+	path = extern/fft-tn-quadp
+	url = https://github.com/bowangle/fft-tn-quadp.git
+	ignore = dirty
