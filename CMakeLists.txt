@@ -22,11 +22,11 @@ target_compile_features(integration_method_deps INTERFACE cxx_std_20)
 
 target_link_libraries(integration_method_deps INTERFACE fft_tn_deps)
 
-# Compile the public header as part of the default build.
-add_library(integration_method STATIC
+# Load the public API for both supported scalar types.
+add_executable(integration_method
     src/integration_method.cpp)
 
-target_link_libraries(integration_method PUBLIC integration_method_deps)
+target_link_libraries(integration_method PRIVATE integration_method_deps)
 
 target_compile_options(integration_method PRIVATE
     -Wall -Wextra -Wreorder -Wshadow)
