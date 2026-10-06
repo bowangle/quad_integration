@@ -13,6 +13,7 @@
 #include <iomanip>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -48,6 +49,7 @@ struct QuanticsFitParameters {
 
     typename Quantics::RunnerParam runner;
     typename Quantics::FitOptions fit_options = {};
+    std::optional<std::string> indefinite_integral_method = std::nullopt;
 };
 
 using LoggerPtr = std::shared_ptr<spdlog::logger>;
@@ -310,7 +312,8 @@ template <typename Cscalar, typename Sint = util::i128>
         std::move(parameters.runner),
         save_prefix,
         std::move(parameters.fit_options),
-        std::move(logger));
+        std::move(logger),
+        std::move(parameters.indefinite_integral_method));
 }
 
 /// Convert a coordinate interval into the half-open Quantics index range
@@ -345,6 +348,47 @@ template <typename Cscalar, typename Sint = util::i128>
     const auto range = coordinate_range(fitted_integrand, ordered, policy);
     const Cscalar value = fitted_integrand.integrate(range);
     return reversed ? -value : value;
+}
+
+/// Evaluate a previously constructed indefinite-integral MPS over one
+/// coordinate interval.
+template <typename Cscalar, typename Sint = util::i128>
+[[nodiscard]] Cscalar integrate_quantics_indefinite(
+    const QuanticsIntegrator1D<Cscalar, Sint>& fitted_integrand,
+    const typename QuanticsIntegrator1D<Cscalar, Sint>::State&
+        indefinite_values,
+    Interval<RealScalar<Cscalar>> interval)
+{
+    using Quantics = QuanticsIntegrator1D<Cscalar, Sint>;
+    return Quantics::integrate_indefinite(
+        indefinite_values,
+        fitted_integrand.grid(),
+        interval.lower,
+        interval.upper);
+}
+
+/// Evaluate a previously constructed indefinite-integral MPS over several
+/// coordinate intervals. Repeated endpoints share the per-call MPS cache.
+template <typename Cscalar, typename Sint = util::i128>
+[[nodiscard]] std::vector<Cscalar> integrate_quantics_indefinite(
+    const QuanticsIntegrator1D<Cscalar, Sint>& fitted_integrand,
+    const typename QuanticsIntegrator1D<Cscalar, Sint>::State&
+        indefinite_values,
+    const std::vector<Interval<RealScalar<Cscalar>>>& intervals)
+{
+    using Quantics = QuanticsIntegrator1D<Cscalar, Sint>;
+
+    std::vector<RealScalar<Cscalar>> x_min;
+    std::vector<RealScalar<Cscalar>> x_max;
+    x_min.reserve(intervals.size());
+    x_max.reserve(intervals.size());
+    for (const auto& interval : intervals) {
+        x_min.push_back(interval.lower);
+        x_max.push_back(interval.upper);
+    }
+
+    return Quantics::integrate_indefinite(
+        indefinite_values, fitted_integrand.grid(), x_min, x_max);
 }
 
 namespace io {
@@ -435,6 +479,10 @@ void save_quantics_parameters(
         {"discontinuities", detail::real_vector_to_json(
             parameters.fit_options.discontinuities)}
     };
+    document["indefinite_integral_method"] =
+        parameters.indefinite_integral_method
+            ? nlohmann::json(*parameters.indefinite_integral_method)
+            : nlohmann::json(nullptr);
     detail::write_json(filename, document);
 }
 
@@ -476,9 +524,17 @@ load_quantics_parameters(const std::string& filename)
         }
     }
 
+    std::optional<std::string> indefinite_integral_method;
+    if (document.contains("indefinite_integral_method") &&
+        !document.at("indefinite_integral_method").is_null()) {
+        indefinite_integral_method =
+            document.at("indefinite_integral_method").get<std::string>();
+    }
+
     return {
         std::move(runner),
-        std::move(fit_options)
+        std::move(fit_options),
+        std::move(indefinite_integral_method)
     };
 }
 
